@@ -10,10 +10,13 @@ from llm import get_llm
 from memory.context import build_context, estimate_tokens
 from safety.guardrails import SAFETY_SYSTEM_PROMPT, check_input, filter_output
 from observability.logger import log_turn
+from tools.toolbox import TOOL_SYSTEM_PROMPT, parse_tool_call, run_tool
 
 load_dotenv()
 
-SYSTEM_PROMPT = SAFETY_SYSTEM_PROMPT
+# System prompt = safety behavior + tool-use instructions.
+SYSTEM_PROMPT = SAFETY_SYSTEM_PROMPT + TOOL_SYSTEM_PROMPT
+MAX_TOOL_ROUNDS = 2
 MAX_TOKENS = int(os.getenv("MEMORY_MAX_TOKENS", "2048"))
 MAX_TURNS = int(os.getenv("MEMORY_MAX_TURNS", "0")) or None  # 0 -> no hard cap
 
@@ -67,25 +70,47 @@ if prompt := st.chat_input("Ask me anything..."):
             max_turns=MAX_TURNS,
         )
 
-        # Stream into a container, then apply the output guardrail (PII redaction)
-        # to the full response and re-render if anything was redacted.
+        # Stream into a container, running a small tool-use loop: if the model
+        # emits a "TOOL: ..." line, execute the tool, feed the result back, and
+        # stream the final answer. Then apply the output guardrail (PII).
         with st.chat_message("assistant"):
             container = st.empty()
-            raw = ""
+            work = list(payload)
+            tool_notes = []
+            final = ""
             start = time.perf_counter()
-            for token in llm.stream(payload):
-                raw += token
-                container.markdown(raw)
+            for _ in range(MAX_TOOL_ROUNDS + 1):
+                raw = ""
+                for token in llm.stream(work):
+                    raw += token
+                    container.markdown(raw)
+                call = parse_tool_call(raw)
+                if not call:
+                    final = raw
+                    break
+                name, arg = call
+                result = run_tool(name, arg)
+                tool_notes.append(f"`{name}({arg})` → {result}")
+                work = work + [
+                    {"role": "assistant", "content": raw},
+                    {"role": "user", "content":
+                        f"TOOL_RESULT: {result}\nNow answer my original question using this result."},
+                ]
+            else:
+                final = raw  # ran out of tool rounds; use the last output
             latency_ms = (time.perf_counter() - start) * 1000
-            response, redactions = filter_output(raw)
+
+            response, redactions = filter_output(final)
+            container.markdown(response)
+            if tool_notes:
+                st.caption("🔧 Tools used: " + " ; ".join(tool_notes))
             if redactions:
-                container.markdown(response)
                 st.caption("⚠️ Redacted potential PII: " + ", ".join(redactions))
 
         st.session_state.messages.append({"role": "assistant", "content": response})
         log_turn(
             backend=llm.name,
-            prompt_tokens=sum(estimate_tokens(m["content"]) for m in payload),
+            prompt_tokens=sum(estimate_tokens(m["content"]) for m in work),
             completion_tokens=estimate_tokens(response),
             latency_ms=latency_ms,
             redactions=redactions,
