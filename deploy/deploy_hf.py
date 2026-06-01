@@ -20,16 +20,35 @@ title: OS Assistant (OSS)
 emoji: 🤖
 colorFrom: indigo
 colorTo: blue
-sdk: streamlit
-app_file: app.py
+sdk: docker
+app_port: 7860
 pinned: false
 ---
 
 # OS Assistant — Open Source Model
 
-Qwen2.5-0.5B-Instruct running on CPU via transformers, with short-term memory
-and safety guardrails. Part of an OSS-vs-frontier assistant comparison; see the
-GitHub repository for the full project, evaluation harness, and report.
+Qwen2.5-0.5B-Instruct running on CPU via transformers, with short-term memory,
+tool use, and safety guardrails. Part of an OSS-vs-frontier assistant
+comparison; see the GitHub repository for the full project, evaluation harness,
+and report. (Streamlit app, served via Docker on port 7860.)
+"""
+
+# Dockerfile that runs the Streamlit app on HF's required port (7860).
+# Caches/logs go to /tmp (writable regardless of the container user).
+DOCKERFILE = """FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+ENV BACKEND=hf \\
+    HF_HOME=/tmp/hf \\
+    HOME=/tmp \\
+    OBS_LOG_PATH=/tmp/turns.jsonl \\
+    STREAMLIT_SERVER_PORT=7860 \\
+    STREAMLIT_SERVER_ADDRESS=0.0.0.0 \\
+    STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+EXPOSE 7860
+CMD ["streamlit", "run", "app.py"]
 """
 
 INCLUDE_FILES = ["app.py"]
@@ -47,8 +66,13 @@ def main():
     from huggingface_hub import HfApi
 
     api = HfApi(token=args.token)
+    # Try to auto-create the Space. Some HF API versions reject sdk="streamlit"
+    # here; if so, the user creates it once in the web UI (SDK: Streamlit) and
+    # we just upload to the existing Space. The README frontmatter (sdk:
+    # streamlit) is the source of truth for the Space type either way.
     api.create_repo(repo_id=args.space, repo_type="space",
-                    space_sdk="streamlit", exist_ok=True)
+                    space_sdk="docker", exist_ok=True)
+    print(f"Space ready (docker): {args.space}")
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     with tempfile.TemporaryDirectory() as tmp:
@@ -61,6 +85,8 @@ def main():
         # so the HF deploy deps become that file.
         shutil.copy(os.path.join(root, "requirements-hf.txt"),
                     os.path.join(tmp, "requirements.txt"))
+        with open(os.path.join(tmp, "Dockerfile"), "w", encoding="utf-8") as fh:
+            fh.write(DOCKERFILE)
         with open(os.path.join(tmp, "README.md"), "w", encoding="utf-8") as fh:
             fh.write(SPACE_README)
         api.upload_folder(folder_path=tmp, repo_id=args.space, repo_type="space")
