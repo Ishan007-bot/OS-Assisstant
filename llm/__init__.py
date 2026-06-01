@@ -18,7 +18,10 @@ import os
 
 
 def get_llm():
-    backend = os.getenv("BACKEND", "ollama").lower()
+    # On a Hugging Face Space (SPACE_ID is set) default to the transformers
+    # backend, since Ollama isn't available there; locally default to ollama.
+    default = "hf" if os.getenv("SPACE_ID") else "ollama"
+    backend = os.getenv("BACKEND", default).lower()
     if backend == "ollama":
         from .ollama_backend import OllamaBackend
         return OllamaBackend()
