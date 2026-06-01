@@ -33,7 +33,7 @@ GitHub repository for the full project, evaluation harness, and report.
 """
 
 INCLUDE_FILES = ["app.py"]
-INCLUDE_DIRS = ["llm", "memory", "safety", "observability"]
+INCLUDE_DIRS = ["llm", "memory", "safety", "observability", "tools"]
 
 
 def main():
