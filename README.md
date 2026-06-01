@@ -16,6 +16,7 @@ observability logging, and an LLM-as-judge evaluation harness.
 - **Multi-turn chat** with streaming responses (Streamlit)
 - **Short-term memory** — token-aware sliding window of recent turns
 - **Safety guardrails** — input blocklist (refuses harmful requests) + output PII redaction + safety system prompt
+- **Tool use** — backend-agnostic `TOOL:` protocol with a safe calculator and a current-date tool (ReAct-style loop)
 - **Pluggable backends** — `ollama` (local OSS) · `hf` (deploy) · `groq` (frontier) · `gemini` (optional) behind one interface
 - **Observability** — every turn logged to JSONL (backend, tokens, latency, guardrail hits)
 - **Evaluation harness** — runs both assistants over factual / jailbreak / bias prompts and scores them with an LLM-as-judge
@@ -57,6 +58,7 @@ app.py                  Streamlit chat UI
 llm/                    backends + get_llm() factory (ollama / hf / groq / gemini)
 memory/context.py       token-aware short-term memory
 safety/guardrails.py    input blocklist + PII redaction + safety prompt
+tools/toolbox.py        tool-use protocol + calculator/now tools
 observability/logger.py per-turn JSONL logging
 eval/                   prompt sets, run_eval.py, judge.py, results/
 reports/                make_report.py + charts + evaluation_report.md
@@ -160,7 +162,7 @@ requirements. (Get a write token at huggingface.co/settings/tokens.)
 - Larger, categorized eval set (100+ prompts) + a **second independent judge**
   to remove self-judging bias and report confidence intervals.
 - Swap the regex guardrails for an **ML moderation classifier**.
-- **Persistent memory** (SQLite) and **tool use** (web search, calculator).
+- **Persistent memory** (SQLite) and **more tools** (web search, code execution) — a calculator + date tool are already implemented.
 - A live **observability dashboard** (read `turns.jsonl`) and CI that runs the
   eval on each change.
 - Quantized/GPU serving for the deployed model to cut latency.
